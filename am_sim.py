@@ -54,5 +54,11 @@ st.markdown("""
 1. 拖动滑块可实时观察参数对波形的影响  
 2. **m＜1**：正常调幅，包络无失真  
 3. **m＞1**：发生过调幅失真，是工程禁忌参数  
-4. 本平台轻量化、零安装、可扫码课堂全员探究
 """)
+# 隐藏 Streamlit 默认底部标识
+st.markdown("""
+<style>
+#MainMenu {visibility: hidden;}
+footer {visibility: hidden;}
+</style>
+""", unsafe_allow_html=True)
