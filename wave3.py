@@ -64,19 +64,19 @@ if menu == "A模块：波形仿真":
 
     fig, (ax1, ax2, ax3) = plt.subplots(3, 1, figsize=(12, 7))
     ax1.plot(t, mod_signal, color="#2E86AB")
-    ax1.set_title("调制信号")
-    ax1.set_ylabel("幅度")
+    ax1.set_title("Modulating Signal")
+    ax1.set_ylabel("Amplitude")
     ax1.grid(True, alpha=0.3)
 
     ax2.plot(t, carrier, color="#A23B72")
-    ax2.set_title("载波信号")
-    ax2.set_ylabel("幅度")
+    ax2.set_title("Carrier Signal")
+    ax2.set_ylabel("Amplitude")
     ax2.grid(True, alpha=0.3)
 
     ax3.plot(t, am_signal, color="#F18F01")
-    ax3.set_title(f"AM已调波形 (m = {m:.2f})")
-    ax3.set_ylabel("幅度")
-    ax3.set_xlabel("时间 t (s)")
+    ax3.set_title(f"AM Modulated Waveform (m = {m:.2f})")
+    ax3.set_ylabel("Amplitude")
+    ax3.set_xlabel("Time t (s)")
     ax3.grid(True, alpha=0.3)
 
     # 手动调整间距，防止标题挤压、被裁剪
@@ -135,16 +135,16 @@ elif menu == "E模块：智能研判":
                     ref_name = "过调幅"
 
                 fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(12, 7))
-                ax1.plot(t_meas * 1000, sig_meas, label="实测AM波形")
-                ax1.plot(t_meas * 1000, envelope, "r--", label="模拟包络检波")
-                ax1.set_title("实测AM波形\n模拟包络检波")
-                ax1.set_xlabel("时间(ms)")
+                ax1.plot(t_meas * 1000, sig_meas, label="Measured AM Waveform")
+                ax1.plot(t_meas * 1000, envelope, "r--", label="Envelope Detection")
+                ax1.set_title("Measured AM Waveform\nEnvelope Detection")
+                ax1.set_xlabel("Time(ms)")
                 ax1.legend()
                 ax1.grid(True, alpha=0.3)
 
-                ax2.plot(t_ref * 1000, am_ref, color="orange", label=f"标准参考波形 {ref_sel}")
-                ax2.set_title(f"标准参考波形 载波{fc_e/1000:.1f}kHz，调制{fm_e}Hz，m={ref_m:.1f}")
-                ax2.set_xlabel("时间(ms)")
+                ax2.plot(t_ref * 1000, am_ref, color="orange", label=f"Reference Waveform {ref_sel}")
+                ax2.set_title(f"Reference Waveform Carrier {fc_e/1000:.1f}kHz, Mod {fm_e}Hz, m={ref_m:.1f}")
+                ax2.set_xlabel("Time(ms)")
                 ax2.legend()
                 ax2.grid(True, alpha=0.3)
 
