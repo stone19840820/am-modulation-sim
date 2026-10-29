@@ -263,6 +263,27 @@ elif menu == "E模块：智能研判":
         fc_e = st.number_input("载波频率(Hz)", value=465000)
         fm_e = st.number_input("调制信号频率(Hz)", value=2000)
 
+    # ========== 封装统一研判函数，CSV、图片共用一套判断逻辑 ==========
+    def judge_result(ref_sel, ma_meas, env_min_norm):
+        st.subheader("**🤖 AI智能研判结果**")
+        st.write(f"**估算实测调制度：** $m_a$ = {ma_meas:.3f}")
+        st.write(f"**归一化包络最小值：** {env_min_norm:.3f}")
+        if ref_sel == "m=0.6正常调幅":
+            if 0.45 <= ma_meas <= 0.75 and env_min_norm > 0.20:
+                st.success("✅ **匹配。上传波形为正常调幅，与选择类型一致。**")
+            else:
+                st.error(f"❌ **不匹配。你选择的正常调幅，当前波形不是正常调幅，请上传正常调幅波形。**")
+        elif ref_sel == "m=1.0临界调幅":
+            if 0.85 <= ma_meas <= 1.15 and abs(env_min_norm) < 0.12:
+                st.success("✅ **匹配。上传波形为临界调幅，与选择类型一致。**")
+            else:
+                st.error(f"❌ **不匹配。你选择的临界调幅，当前波形不是临界调幅，请上传临界调幅波形。**")
+        elif ref_sel == "m=1.4过调幅":
+            if env_min_norm < 0.08:
+                st.success("✅ **匹配。上传波形为过调幅，与选择类型一致。**")
+            else:
+                st.error(f"❌ **不匹配。你选择的过调幅，当前波形不是过调幅波形，请上传过调幅波形。**")
+
     # ---------- CSV分支 ----------
     if input_mode == "CSV文件导出":
         uploaded_file = st.file_uploader("**上传示波器CSV文件，两列：时间，电压**", type="csv")
@@ -286,6 +307,7 @@ elif menu == "E模块：智能研判":
                     env_max = np.max(envelope)
                     env_min = np.min(envelope)
                     ma_meas = (env_max - env_min) / (env_max + env_min)
+                    env_min_norm = env_min / env_max
 
                     t_start = np.min(t_meas)
                     t_end_csv = np.max(t_meas)
@@ -294,45 +316,23 @@ elif menu == "E模块：智能研判":
                     if ref_sel == "m=0.6正常调幅":
                         am_ref = (1 + 0.6 * np.cos(2 * np.pi * fm_e * t_ref)) * np.cos(2 * np.pi * fc_e * t_ref)
                         ref_m = 0.6
-                        ref_name = "正常调幅"
                     elif ref_sel == "m=1.0临界调幅":
                         am_ref = (1 + 1.0 * np.cos(2 * np.pi * fm_e * t_ref)) * np.cos(2 * np.pi * fc_e * t_ref)
                         ref_m = 1.0
-                        ref_name = "临界调幅"
                     else:
                         am_ref = (1 + 1.4 * np.cos(2 * np.pi * fm_e * t_ref)) * np.cos(2 * np.pi * fc_e * t_ref)
                         ref_m = 1.4
-                        ref_name = "过调幅"
 
-                    # 【修改】只画单张理想参考波形，删掉实测波形子图
                     fig, ax = plt.subplots(figsize=(12, 4))
                     ax.plot(t_ref * 1000, am_ref, color="orange", label=f"Reference Waveform {ref_sel}")
                     ax.set_title(f"Reference Waveform Carrier {fc_e/1000:.1f}kHz, Mod {fm_e}Hz, m={ref_m:.1f}")
                     ax.set_xlabel("Time(ms)")
                     ax.legend()
                     ax.grid(True, alpha=0.3)
-
                     fig.subplots_adjust(top=0.92)
                     st.pyplot(fig)
 
-                    st.subheader("**🤖 AI智能研判结果**")
-                    st.write(f"**估算实测调制度：** $m_a$ = {ma_meas:.3f}")
-
-                    if ref_m == 0.6:
-                        if abs(ma_meas - 0.6) < 0.15:
-                            st.success("✅ **匹配。上传波形为正常调幅，与选择类型一致。**")
-                        else:
-                            st.error(f"❌ **不匹配。你选择的是{ref_name}，当前上传波形不是正常调幅，请上传正常调幅波形。**")
-                    elif ref_m == 1.0:
-                        if abs(ma_meas - 1.0) < 0.15:
-                            st.success("✅ **匹配。上传波形为临界调幅，与选择类型一致。**")
-                        else:
-                            st.error(f"❌ **不匹配。你选择的是{ref_name}，当前上传波形不是临界调幅，请上传临界调幅波形。**")
-                    elif ref_m == 1.4:
-                        if abs(ma_meas - 1.4) < 0.20:
-                            st.success("✅ **匹配。上传波形为过调幅，与选择类型一致。**")
-                        else:
-                            st.error(f"❌ **不匹配。你选择的是{ref_name}，当前上传波形不是过调幅，请上传过调幅波形。**")
+                    judge_result(ref_sel, ma_meas, env_min_norm)
 
             except Exception as err:
                 st.error(f"**文件解析失败：{err}**")
@@ -353,12 +353,10 @@ elif menu == "E模块：智能研判":
 
             # Step 1：自动裁剪示波器屏幕
             cropped = find_oscilloscope_screen(img_cv)
-
-            # Step 2：透视矫正（后台运算，不再展示矫正后图片！）
+            # Step 2：透视矫正
             corrected = perspective_correction(cropped)
-            # st.image(corrected, caption="自动裁剪并透视矫正后的示波器屏幕", use_container_width=True) 【已注释删除】
 
-            # Step 3：OCR识别档位，支持中文和英文
+            # Step 3：OCR识别档位
             ocr_raw = pytesseract.image_to_string(
                 corrected,
                 lang="chi_sim+eng"
@@ -366,8 +364,6 @@ elif menu == "E模块：智能研判":
             st.markdown(f"OCR识别原文：`{ocr_raw}`")
 
             time_per_div, volt_per_div = parse_scope_settings(ocr_raw)
-
-            # 识别失败时允许手动输入
             if time_per_div is None or volt_per_div is None:
                 st.warning("⚠️ OCR未能完整识别档位，请手动输入示波器网格参数！")
                 time_per_div = st.number_input("横向：每格时间(s)", value=0.0002)
@@ -377,12 +373,12 @@ elif menu == "E模块：智能研判":
 
             # Step 4：提取波形并计算包络
             t_meas, sig_meas = extract_waveform_from_image(corrected, time_per_div, volt_per_div)
-
             analytic = hilbert(sig_meas)
             envelope = np.abs(analytic)
             env_max = np.max(envelope)
             env_min = np.min(envelope)
             ma_meas = (env_max - env_min) / (env_max + env_min)
+            env_min_norm = env_min / env_max
 
             t_start = np.min(t_meas)
             t_end_csv = np.max(t_meas)
@@ -391,42 +387,20 @@ elif menu == "E模块：智能研判":
             if ref_sel == "m=0.6正常调幅":
                 am_ref = (1 + 0.6 * np.cos(2 * np.pi * fm_e * t_ref)) * np.cos(2 * np.pi * fc_e * t_ref)
                 ref_m = 0.6
-                ref_name = "正常调幅"
             elif ref_sel == "m=1.0临界调幅":
                 am_ref = (1 + 1.0 * np.cos(2 * np.pi * fm_e * t_ref)) * np.cos(2 * np.pi * fc_e * t_ref)
                 ref_m = 1.0
-                ref_name = "临界调幅"
             else:
                 am_ref = (1 + 1.4 * np.cos(2 * np.pi * fm_e * t_ref)) * np.cos(2 * np.pi * fc_e * t_ref)
                 ref_m = 1.4
-                ref_name = "过调幅"
 
-            # 【修改】只画单张理想参考波形，删掉实测波形子图
             fig, ax = plt.subplots(figsize=(12, 4))
             ax.plot(t_ref * 1000, am_ref, color="orange", label=f"Reference Waveform {ref_sel}")
             ax.set_title(f"Reference Waveform Carrier {fc_e/1000:.1f}kHz, Mod {fm_e}Hz, m={ref_m:.1f}")
             ax.set_xlabel("Time(ms)")
             ax.legend()
             ax.grid(True, alpha=0.3)
-
             fig.subplots_adjust(top=0.92)
             st.pyplot(fig)
 
-            st.subheader("**🤖 AI智能研判结果**")
-            st.write(f"**估算实测调制度：** $m_a$ = {ma_meas:.3f}")
-
-            if ref_m == 0.6:
-                if abs(ma_meas - 0.6) < 0.15:
-                    st.success("✅ **匹配。上传波形为正常调幅，与选择类型一致。**")
-                else:
-                    st.error(f"❌ **不匹配。你选择的是{ref_name}，当前上传波形不是正常调幅波形。**")
-            elif ref_m == 1.0:
-                if abs(ma_meas - 1.0) < 0.15:
-                    st.success("✅ **匹配。上传波形为临界调幅，与选择类型一致。**")
-                else:
-                    st.error(f"❌ **不匹配。你选择的是{ref_name}，当前上传波形不是临界调幅波形。**")
-            elif ref_m == 1.4:
-                if abs(ma_meas - 1.4) < 0.20:
-                    st.success("✅ **匹配。上传波形为过调幅，与选择类型一致。**")
-                else:
-                    st.error(f"❌ **不匹配。你选择的是{ref_name}，当前上传波形不是过调幅波形。**")
+            judge_result(ref_sel, ma_meas, env_min_norm)
