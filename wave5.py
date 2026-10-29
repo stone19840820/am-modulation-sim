@@ -5,8 +5,7 @@ import matplotlib.pyplot as plt
 from scipy.signal import hilbert
 import cv2
 
-# ====================== 全局Matplotlib中文配置 ======================
-plt.rcParams["font.sans-serif"] = ["WenQuanYi Micro Hei", "Noto Sans CJK SC", "SimHei"]
+# ====================== 全局Matplotlib配置：图内文字英文，页面界面中文保留 ======================
 plt.rcParams["axes.unicode_minus"] = False
 plt.rcParams["axes.titlesize"] = 12
 plt.rcParams["axes.labelsize"] = 10
@@ -36,13 +35,21 @@ if menu == "A模块：波形仿真":
 
     fig, (ax1, ax2, ax3) = plt.subplots(3, 1, figsize=(12,7), constrained_layout=True)
     ax1.plot(t, mod_signal)
-    ax1.set_title("调制信号")
+    ax1.set_title("Modulating Signal")
+    ax1.set_xlabel("Time (s)")
+    ax1.set_ylabel("Amplitude")
     ax1.grid(alpha=0.3)
+
     ax2.plot(t, carrier)
-    ax2.set_title("载波信号")
+    ax2.set_title("Carrier Signal")
+    ax2.set_xlabel("Time (s)")
+    ax2.set_ylabel("Amplitude")
     ax2.grid(alpha=0.3)
+
     ax3.plot(t, am_signal)
-    ax3.set_title(f"AM已调信号，调制系数 m={m:.2f}")
+    ax3.set_title(f"AM Modulated Signal, m={m:.2f}")
+    ax3.set_xlabel("Time (s)")
+    ax3.set_ylabel("Amplitude")
     ax3.grid(alpha=0.3)
     st.pyplot(fig)
 
@@ -68,9 +75,11 @@ if menu == "E模块：AI智能研判":
             st.write(f"估算调制度 ma = {ma_estimate:.3f}")
 
             fig_csv, ax_csv = plt.subplots(figsize=(12,4), constrained_layout=True)
-            ax_csv.plot(t_data, sig_data, label="实测波形", alpha=0.5)
-            ax_csv.plot(t_data, env, "r", linewidth=2, label="包络")
-            ax_csv.set_title("CSV波形与包络")
+            ax_csv.plot(t_data, sig_data, label="Measured Waveform", alpha=0.5)
+            ax_csv.plot(t_data, env, "r", linewidth=2, label="Envelope")
+            ax_csv.set_title("Waveform and Envelope")
+            ax_csv.set_xlabel("Time (s)")
+            ax_csv.set_ylabel("Amplitude")
             ax_csv.grid(True, alpha=0.3)
             ax_csv.legend()
             st.pyplot(fig_csv)
@@ -97,6 +106,9 @@ if menu == "E模块：AI智能研判":
         st.info("⚠️由图片提取生成波形数据，受屏幕网格、拍摄摩尔纹干扰，存在误差，仅教学演示。正式测量请上传示波器CSV文件。")
         uploaded_img = st.file_uploader("上传示波器波形截图", type=["jpg","png"])
         if uploaded_img is not None:
+            # 显示上传的原图
+            st.image(uploaded_img, caption="上传截图", use_column_width=True)
+
             file_bytes = np.asarray(bytearray(uploaded_img.read()), dtype=np.uint8)
             img = cv2.imdecode(file_bytes, cv2.IMREAD_COLOR)
 
@@ -136,26 +148,6 @@ if menu == "E模块：AI智能研判":
             ma_estimate = (env_max - env_min)/(env_max + env_min)
             st.write(f"估算调制度 ma = {ma_estimate:.3f}")
 
-            # 绘图：提取波形+包络+理想包络叠加
-            fig_img, ax = plt.subplots(figsize=(12,4), constrained_layout=True)
-            ax.plot(t_data, sig_data, color="#1f77b4", alpha=0.4, label="提取波形")
-            ax.plot(t_data, env, color="#1f77b4", linewidth=2, label="提取波形包络")
-
-            if ref_sel == "m=0.6正常调幅":
-                ma_ref =0.6
-            elif ref_sel == "m=1.0临界调幅":
-                ma_ref =1.0
-            else:
-                ma_ref =1.4
-            env_ideal = 1 + ma_ref * np.cos(2*np.pi * 1 * t_data)
-            env_ideal = env_ideal / np.max(env_ideal) * np.max(env)
-            ax.plot(t_data, env_ideal, color="#ff4444", linestyle="--", linewidth=2, label=f"理想包络 {ref_sel}")
-
-            ax.set_title("包络对比图")
-            ax.grid(True, alpha=0.3)
-            ax.legend()
-            st.pyplot(fig_img)
-
             st.markdown("### 研判结论")
             if ref_sel == "m=0.6正常调幅":
                 if 0.4 < ma_estimate < 0.85:
@@ -172,4 +164,3 @@ if menu == "E模块：AI智能研判":
                     st.success("✅波形匹配，为过调幅")
                 else:
                     st.error("❌不匹配，不是过调幅")
-
