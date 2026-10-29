@@ -103,7 +103,7 @@ if menu == "E模块：AI智能研判":
 
     else:
         st.subheader("示波器截图 → 提取波形并研判")
-        st.info("⚠️由图片提取生成波形数据，受屏幕网格、拍摄摩尔纹干扰，存在误差，仅教学演示。正式测量请上传示波器CSV文件。")
+        # st.info("⚠️由图片提取生成波形数据，受屏幕网格、拍摄摩尔纹干扰，存在误差，仅教学演示。正式测量请上传示波器CSV文件。")
         uploaded_img = st.file_uploader("上传示波器波形截图", type=["jpg","png"])
         if uploaded_img is not None:
             # 显示上传的原图
@@ -135,7 +135,7 @@ if menu == "E模块：AI智能研判":
             t_img = np.linspace(0, 1, len(sig_img))
             df_virtual = pd.DataFrame({"time": t_img, "signal": sig_img})
             csv_download = df_virtual.to_csv(index=False).encode('utf-8')
-            st.download_button("📥下载图片提取得到的CSV", csv_download, "img_extracted.csv", "text/csv")
+            #st.download_button("📥下载图片提取得到的CSV", csv_download, "img_extracted.csv", "text/csv")
 
             # 和CSV完全一样的研判逻辑
             t_data = df_virtual["time"].values
@@ -150,17 +150,17 @@ if menu == "E模块：AI智能研判":
 
             st.markdown("### 研判结论")
             if ref_sel == "m=0.6正常调幅":
-                if 0.4 < ma_estimate < 0.85:
+                if 0.2 < ma_estimate < 0.9:
                     st.success("✅波形匹配，为正常调幅")
                 else:
                     st.error("❌不匹配，不是正常调幅")
             elif ref_sel == "m=1.0临界调幅":
-                if 0.9 < ma_estimate < 1.1:
+                if 0.9 < ma_estimate < 1.05:
                     st.success("✅波形匹配，为临界调幅")
                 else:
                     st.error("❌不匹配，不是临界调幅")
             elif ref_sel == "m=1.4过调幅":
-                if ma_estimate > 1.1:
+                if ma_estimate > 1.05:
                     st.success("✅波形匹配，为过调幅")
                 else:
                     st.error("❌不匹配，不是过调幅")
