@@ -2,3 +2,6 @@ streamlit
 numpy
 matplotlib
 scipy
+opencv-python
+Pillow
+pytesseract
