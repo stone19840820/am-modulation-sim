@@ -263,11 +263,9 @@ elif menu == "E模块：智能研判":
         fc_e = st.number_input("载波频率(Hz)", value=465000)
         fm_e = st.number_input("调制信号频率(Hz)", value=2000)
 
-    # ========== 封装统一研判函数（高容错版本） ==========
-    def judge_result(ref_sel, ma_meas, env_min_norm):
+    # ========== CSV研判函数（严格阈值） ==========
+    def judge_csv(ref_sel, ma_meas, env_min_norm):
         st.subheader("**🤖 AI智能研判结果**")
-        #st.write(f"**估算实测调制度：** $m_a$ = {ma_meas:.3f}")
-        #st.write(f"**归一化包络最小值：** {env_min_norm:.3f}")
         if ref_sel == "m=0.6正常调幅":
             if 0.40 <= ma_meas <= 0.80 and env_min_norm > 0.15:
                 st.success("✅ **匹配。上传波形为正常调幅，与选择类型一致。**")
@@ -284,8 +282,28 @@ elif menu == "E模块：智能研判":
             else:
                 st.error(f"❌ **不匹配。你选择的过调幅，当前波形不是过调幅波形，请上传过调幅波形。**")
 
+    # ========== 图片研判函数（宽松阈值，适配拍照噪声） ==========
+    def judge_image(ref_sel, ma_meas, env_min_norm):
+        st.subheader("**🤖 图片模式研判结果（仅课堂参考）**")
+        if ref_sel == "m=0.6正常调幅":
+            # 图片放宽，包络谷底>0.08就判定正常，调制度范围扩大
+            if 0.30 <= ma_meas <= 0.90 and env_min_norm > 0.08:
+                st.success("✅ **形态匹配。提取波形包络特征符合正常调幅。**")
+            else:
+                st.error(f"❌ **形态不匹配。包络特征不符合正常调幅，请上传正常调幅波形。**")
+        elif ref_sel == "m=1.0临界调幅":
+            if 0.70 <= ma_meas <= 1.30 and 0.02 < env_min_norm <0.22:
+                st.success("✅ **形态匹配。提取波形包络特征符合临界调幅。**")
+            else:
+                st.error(f"❌ **形态不匹配。包络特征不符合临界调幅，请上传临界调幅波形。**")
+        elif ref_sel == "m=1.4过调幅":
+            if env_min_norm < 0.08 and ma_meas > 0.90:
+                st.success("✅ **形态匹配。提取波形包络特征符合过调幅。**")
+            else:
+                st.error(f"❌ **形态不匹配。包络特征不符合过调幅，请上传过调幅波形。**")
+
     # ---------- CSV分支 ----------
-    if input_mode == "CSV文件导出":
+    if input_mode == "CSV文件":
         uploaded_file = st.file_uploader("**上传示波器CSV文件，两列：时间，电压**", type="csv")
         if uploaded_file is not None:
             try:
@@ -329,7 +347,7 @@ elif menu == "E模块：智能研判":
                     fig.subplots_adjust(top=0.92)
                     st.pyplot(fig)
 
-                    judge_result(ref_sel, ma_meas, env_min_norm)
+                    judge_csv(ref_sel, ma_meas, env_min_norm)
 
             except Exception as err:
                 st.error(f"**文件解析失败：{err}**")
@@ -446,5 +464,5 @@ elif menu == "E模块：智能研判":
             fig2.subplots_adjust(top=0.92)
             st.pyplot(fig2)
 
-            # 共用同一套研判函数（和CSV判断标准一致）
-            judge_result(ref_sel, ma_meas, env_min_norm)
+            # 图片分支调用宽松的图片研判函数
+            judge_image(ref_sel, ma_meas, env_min_norm)
