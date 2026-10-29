@@ -380,7 +380,7 @@ elif menu == "E模块：智能研判":
             # ---------- 3. 去直流 + 轻平滑，再算包络 ----------
             sig_norm = sig_norm - np.mean(sig_norm)
             if len(sig_norm) > 31:
-                sig_norm = savgol_filter(sig_norm, 31, 31, 3)
+                sig_norm = savgol_filter(sig_norm, window_length=31, polyorder=3)
 
             # 先画提取到的波形，方便用户确认是否提取成功
             fig_w, ax_w = plt.subplots(figsize=(12, 3))
