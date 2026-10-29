@@ -131,22 +131,15 @@ if menu == "E模块：AI智能研判":
             sig_img = np.interp(x_img, x_img[valid_idx], sig_img[valid_idx])
             sig_img = (H/2 - sig_img)/(H/2)
 
-            # 构造虚拟CSV
-            t_img = np.linspace(0, 1, len(sig_img))
-            df_virtual = pd.DataFrame({"time": t_img, "signal": sig_img})
-            csv_download = df_virtual.to_csv(index=False).encode('utf-8')
-            st.download_button("📥下载图片提取得到的CSV", csv_download, "img_extracted.csv", "text/csv")
-
             # 和CSV完全一样的研判逻辑
-            t_data = df_virtual["time"].values
-            sig_data = df_virtual["signal"].values
+            t_data = np.linspace(0, 1, len(sig_img))
+            sig_data = sig_img
 
             analytic = hilbert(sig_data)
             env = np.abs(analytic)
             env_max = np.max(env)
             env_min = np.min(env)
             ma_estimate = (env_max - env_min)/(env_max + env_min)
-            st.write(f"估算调制度 ma = {ma_estimate:.3f}")
 
             st.markdown("### 研判结论")
             if ref_sel == "m=0.6正常调幅":
