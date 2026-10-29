@@ -2,15 +2,14 @@ import streamlit as st
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
-from scipy.signal import hilbert
+from scipy.signal import hilbert, savgol_filter
 import cv2
 from PIL import Image
 import pytesseract
 import re
 
 # ====================== Matplotlib 全局配置 ======================
-# 全部图表使用英文，注释掉中文字体，避免云端标题丢失
-# plt.rcParams["font.sans-serif"] = ["WenQuanYi Micro Hei"]
+# 全部图表使用英文，避免云端标题丢失
 plt.rcParams["axes.unicode_minus"] = False
 plt.rcParams["axes.titlesize"] = 12
 plt.rcParams["axes.labelsize"] = 10
@@ -45,20 +44,13 @@ menu = st.radio(
 
 
 # ====================== 图像处理工具函数 ======================
-
 def remove_reflection(img_cv):
     """抗反光预处理：降低高光、增强波形线条和文字对比度。"""
     gray = cv2.cvtColor(img_cv, cv2.COLOR_BGR2GRAY)
-
-    # 用大核均值估计屏幕反光区域
     blur = cv2.GaussianBlur(gray, (51, 51), 0)
     diff = cv2.absdiff(gray, blur)
-
-    # 归一化并增强对比度
     norm = cv2.normalize(diff, None, 0, 255, cv2.NORM_MINMAX)
     enhanced = cv2.convertScaleAbs(norm, alpha=1.8, beta=10)
-
-    # 局部二值化，增强文字和波形线条
     thresh = cv2.adaptiveThreshold(
         enhanced, 255,
         cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
@@ -72,21 +64,17 @@ def find_oscilloscope_screen(img_cv):
     """通过轮廓检测找到示波器屏幕区域。"""
     processed = remove_reflection(img_cv)
     contours, _ = cv2.findContours(processed, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-
     max_area = 0
     best_rect = None
-
     for cnt in contours:
         x, y, w, h = cv2.boundingRect(cnt)
         area = w * h
         if area > max_area:
             max_area = area
             best_rect = (x, y, w, h)
-
     if best_rect is not None:
         x, y, w, h = best_rect
         return img_cv[y:y+h, x:x+w]
-
     return img_cv
 
 
@@ -94,108 +82,80 @@ def perspective_correction(img_cv):
     """透视矫正：将倾斜拍摄的示波器屏幕自动转正为矩形。"""
     h, w = img_cv.shape[:2]
     processed = remove_reflection(img_cv)
-
     contours, _ = cv2.findContours(processed, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
     largest_contour = max(contours, key=cv2.contourArea)
-
     epsilon = 0.02 * cv2.arcLength(largest_contour, True)
     approx = cv2.approxPolyDP(largest_contour, epsilon, True)
-
-    # 如果近似为四边形，做透视变换
     if len(approx) == 4:
         pts = approx.reshape(4, 2)
         pts = pts[np.argsort(pts[:, 0])]
-
         left = pts[:2]
         right = pts[2:]
         left = left[np.argsort(left[:, 1])]
         right = right[np.argsort(right[:, 1])]
-
         src = np.array([left[0], right[0], left[1], right[1]], dtype=np.float32)
         dst = np.array([[0, 0], [w, 0], [0, h], [w, h]], dtype=np.float32)
-
         M = cv2.getPerspectiveTransform(src, dst)
         corrected = cv2.warpPerspective(img_cv, M, (w, h))
         return corrected
-
     return img_cv
 
 
 def parse_scope_settings(ocr_text):
     """从OCR文字中解析时间/电压档位。"""
     ocr_text = ocr_text.replace("，", " ").replace(",", " ")
-
-    # 匹配时间档位：200μs、0.5ms、1ms、50us等
     pat_time = re.search(
         r'(\d+\.?\d*)\s*(us|μs|ms|s)',
         ocr_text.lower()
     )
-    # 匹配电压档位：0.5V、1V、2V、5V等
     pat_volt = re.search(
         r'(\d+\.?\d*)\s*v',
         ocr_text.lower()
     )
-
     time_per_div = None
     volt_per_div = None
-
     unit_map_time = {
         "us": 1e-6,
         "μs": 1e-6,
         "ms": 1e-3,
         "s": 1
     }
-
     if pat_time:
         val = float(pat_time.group(1))
         unit = pat_time.group(2)
         time_per_div = val * unit_map_time[unit]
-
     if pat_volt:
         volt_per_div = float(pat_volt.group(1))
-
     return time_per_div, volt_per_div
 
 
 def extract_waveform_from_image(crop_img, time_per_div, volt_per_div):
-    """【升级增强版】从图片提取波形，中位数取点+尖峰过滤，提升识别率"""
+    """从图片提取波形，中位数取点+尖峰过滤"""
     gray = cv2.cvtColor(crop_img, cv2.COLOR_BGR2GRAY)
-
-    # 更强降噪
     blur = cv2.GaussianBlur(gray, (81, 81), 0)
     diff = cv2.absdiff(gray, blur)
     norm = cv2.normalize(diff, None, 0, 255, cv2.NORM_MINMAX)
     enhanced = cv2.convertScaleAbs(norm, alpha=2.5, beta=12)
-
     _, thresh = cv2.threshold(enhanced, 120, 255, cv2.THRESH_BINARY_INV)
-
     h_img, w_img = thresh.shape
     x_pixel = np.arange(w_img)
     y_pixel = np.zeros(w_img)
-
     for x in range(w_img):
         col = thresh[:, x]
         idx = np.where(col > 0)[0]
         if len(idx) > 0:
-            y_pixel[x] = np.median(idx)  # 中位数代替均值，抑制噪点尖峰
+            y_pixel[x] = np.median(idx)
         else:
             y_pixel[x] = np.nan
-
-    # 插值补断线
     mask = np.isnan(y_pixel)
     y_pixel[mask] = np.interp(x_pixel[mask], x_pixel[~mask], y_pixel[~mask])
-
-    # 突变尖峰剔除
     y_diff = np.diff(y_pixel, prepend=y_pixel[0])
     spike_th = np.std(y_diff)*3
     y_pixel[np.abs(y_diff)>spike_th] = np.nan
     mask2 = np.isnan(y_pixel)
     y_pixel[mask2] = np.interp(x_pixel[mask2], x_pixel[~mask2], y_pixel[~mask2])
-
-    # 像素坐标 -> 物理量
     t_meas = x_pixel / w_img * (10 * time_per_div)
     sig_meas = ((h_img / 2 - y_pixel) / (h_img / 10)) * volt_per_div
-
     return t_meas, sig_meas
 
 
@@ -247,7 +207,7 @@ elif menu == "E模块：智能研判":
     st.markdown(
         "**操作说明：**\n"
         "① CSV模式：上传示波器导出CSV文件；\n"
-        "② 拍照/图片模式：直接拍摄示波器屏幕或者上传已拍图片。"
+        "② 拍照/图片模式：直接上传示波器屏幕照片。"
     )
 
     with st.sidebar:
@@ -281,26 +241,6 @@ elif menu == "E模块：智能研判":
                 st.success("✅ **匹配。上传波形为过调幅，与选择类型一致。**")
             else:
                 st.error(f"❌ **不匹配。你选择的过调幅，当前波形不是过调幅波形，请上传过调幅波形。**")
-
-    # ========== 图片研判函数（宽松阈值，适配拍照噪声） ==========
-    def judge_image(ref_sel, ma_meas, env_min_norm):
-        st.subheader("**🤖 图片模式研判结果（仅课堂参考）**")
-        if ref_sel == "m=0.6正常调幅":
-            # 图片放宽，包络谷底>0.08就判定正常，调制度范围扩大
-            if 0.30 <= ma_meas <= 0.90 and env_min_norm > 0.08:
-                st.success("✅ **形态匹配。提取波形包络特征符合正常调幅。**")
-            else:
-                st.error(f"❌ **形态不匹配。包络特征不符合正常调幅，请上传正常调幅波形。**")
-        elif ref_sel == "m=1.0临界调幅":
-            if 0.70 <= ma_meas <= 1.30 and 0.02 < env_min_norm <0.22:
-                st.success("✅ **形态匹配。提取波形包络特征符合临界调幅。**")
-            else:
-                st.error(f"❌ **形态不匹配。包络特征不符合临界调幅，请上传临界调幅波形。**")
-        elif ref_sel == "m=1.4过调幅":
-            if env_min_norm < 0.08 and ma_meas > 0.90:
-                st.success("✅ **形态匹配。提取波形包络特征符合过调幅。**")
-            else:
-                st.error(f"❌ **形态不匹配。包络特征不符合过调幅，请上传过调幅波形。**")
 
     # ---------- CSV分支 ----------
     if input_mode == "CSV文件":
@@ -353,84 +293,150 @@ elif menu == "E模块：智能研判":
                 st.error(f"**文件解析失败：{err}**")
                 st.info("请确认CSV只有两列：第一列时间(s)，第二列电压(V)，不要带多余表头说明行，文件至少包含多组采样点！")
 
-    # ---------- 拍照图片分支（修改：HSV筛选蓝色波形，包络对比） ----------
+    # ---------- 拍照图片分支：屏幕定位 + 波形分离 + 包络研判 ----------
     else:
-        st.warning("📷 图片模式：仅提取图中蓝色波形进行包络分析，受屏幕摩尔纹、曝光影响，结论仅供课堂参考，精准判定请使用CSV文件！")
-        st.markdown("##### 方式1：摄像头直接拍摄示波器屏幕")
-        img_camera = st.camera_input("拍摄示波器（建议包含波形区和底部档位文字）")
-        st.markdown("##### 方式2：上传示波器截图图片")
+        st.warning("📷 图片模式：基于波形包络形状定性研判，受屏幕摩尔纹影响，结果仅作参考！精准判定请切换CSV模式。")
+        st.markdown("##### 上传波形图片")
         img_upload = st.file_uploader("上传波形图片", type=["jpg", "jpeg", "png"])
-        img_buffer = img_camera if img_camera else img_upload
 
-        if img_buffer is not None:
-            img_pil = Image.open(img_buffer)
+        if img_upload is not None:
+            img_pil = Image.open(img_upload).convert("RGB")
             st.image(img_pil, caption="原始拍摄图片", use_container_width=True)
+
             img_cv = cv2.cvtColor(np.array(img_pil), cv2.COLOR_RGB2BGR)
 
-            # Step 1：自动裁剪示波器屏幕
-            cropped = find_oscilloscope_screen(img_cv)
-            # Step 2：透视矫正
-            corrected = perspective_correction(cropped)
+            # ---------- 1. 屏幕定位：优先找"亮绿色/高亮"区域，退化时用最大四边形 ----------
+            def locate_screen(img):
+                hsv = cv2.cvtColor(img, cv2.COLOR_BGR2HSV)
+                gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+                blur = cv2.GaussianBlur(gray, (9, 9), 0)
+                _, th = cv2.threshold(blur, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+                kernel = np.ones((15, 15), np.uint8)
+                th = cv2.morphologyEx(th, cv2.MORPH_CLOSE, kernel, iterations=2)
+                cnts, _ = cv2.findContours(th, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+                if not cnts:
+                    return img, None
+                best, best_score = None, -1
+                H, W = img.shape[:2]
+                for c in cnts:
+                    area = cv2.contourArea(c)
+                    if area < 0.05 * H * W:
+                        continue
+                    x, y, w, h = cv2.boundingRect(c)
+                    ar = w / max(h, 1)
+                    if 1.0 < ar < 3.0:
+                        score = area
+                        if score > best_score:
+                            best_score, best = score, (x, y, w, h)
+                if best is None:
+                    c = max(cnts, key=cv2.contourArea)
+                    x, y, w, h = cv2.boundingRect(c)
+                    best = (x, y, w, h)
+                x, y, w, h = best
+                pad_x, pad_y = int(w * 0.05), int(h * 0.05)
+                x, y = x + pad_x, y + pad_y
+                w, h = w - 2 * pad_x, h - 2 * pad_y
+                return img[y:y+h, x:x+w], (x, y, w, h)
 
-            # Step 3：OCR识别档位
-            ocr_raw = pytesseract.image_to_string(
-                corrected,
-                lang="chi_sim+eng"
-            )
-            time_per_div, volt_per_div = parse_scope_settings(ocr_raw)
+            screen, box = locate_screen(img_cv)
+            if box is None:
+                st.error("❌ 未能定位示波器屏幕，请上传更清晰的正面照片。")
+                st.stop()
+            st.image(cv2.cvtColor(screen, cv2.COLOR_BGR2RGB), caption="定位到的屏幕区域", use_container_width=True)
 
-            if time_per_div is None or volt_per_div is None:
-                st.warning("⚠️ OCR未能完整识别档位，请手动输入示波器网格参数！")
-                time_per_div = st.number_input("横向：每格时间(s)", value=0.0002)
-                volt_per_div = st.number_input("纵向：每格电压(V)", value=2.0)
-
-            # ========== 【改动重点：HSV筛选蓝色波形，只提取蓝色线条】 ==========
-            hsv = cv2.cvtColor(corrected, cv2.COLOR_BGR2HSV)
-            # 蓝色阈值，适配示波器常见蓝色波形
-            lower_blue = np.array([90, 60, 40])
-            upper_blue = np.array([130, 255, 255])
-            mask_blue = cv2.inRange(hsv, lower_blue, upper_blue)
-            # 形态学降噪，去掉细碎噪点
-            kernel = np.ones((2, 2), np.uint8)
-            mask_blue = cv2.morphologyEx(mask_blue, cv2.MORPH_CLOSE, kernel)
-            mask_blue = cv2.morphologyEx(mask_blue, cv2.MORPH_OPEN, kernel)
-
-            h_img, w_img = mask_blue.shape
-            x_pixel = np.arange(w_img)
-            y_pixel = np.zeros(w_img)
-
-            for x in range(w_img):
-                col = mask_blue[:, x]
-                idx = np.where(col > 0)[0]
-                if len(idx) > 0:
-                    y_pixel[x] = np.median(idx)
+            # ---------- 2. 波形提取：按"高亮/彩色"分离波形，剔除网格 ----------
+            def extract_waveform(screen_bgr):
+                hsv = cv2.cvtColor(screen_bgr, cv2.COLOR_BGR2HSV)
+                H, W = screen_bgr.shape[:2]
+                sat = hsv[:, :, 1]
+                val = hsv[:, :, 2]
+                color_mask = ((sat > 80) & (val > 120)).astype(np.uint8) * 255
+                gray = cv2.cvtColor(screen_bgr, cv2.COLOR_BGR2GRAY)
+                _, bright_mask = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+                if color_mask.sum() > 0.005 * H * W * 255:
+                    mask = color_mask
                 else:
-                    y_pixel[x] = np.nan
+                    mask = bright_mask
+                kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (3, 3))
+                mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, kernel, iterations=1)
+                sig = np.full(W, np.nan, dtype=np.float32)
+                for col in range(W):
+                    ys = np.where(mask[:, col] > 0)[0]
+                    if len(ys) > 0:
+                        sig[col] = np.median(ys)
+                valid = ~np.isnan(sig)
+                if valid.sum() < 10:
+                    return None, None
+                idx = np.arange(W)
+                sig = np.interp(idx, idx[valid], sig[valid])
+                v = (H / 2 - sig) / (H / 2)
+                return idx, v
 
-            # 插值补断线
-            mask_nan = np.isnan(y_pixel)
-            y_pixel[mask_nan] = np.interp(x_pixel[mask_nan], x_pixel[~mask_nan], y_pixel[~mask_nan])
+            col_idx, sig_norm = extract_waveform(screen)
+            if sig_norm is None:
+                st.error("❌ 未能从图片中提取到波形，请换一张对比度更高的照片。")
+                st.stop()
 
-            # 剔除突变尖峰噪声
-            y_diff = np.diff(y_pixel, prepend=y_pixel[0])
-            spike_th = np.std(y_diff)*3
-            y_pixel[np.abs(y_diff)>spike_th] = np.nan
-            mask_nan2 = np.isnan(y_pixel)
-            y_pixel[mask_nan2] = np.interp(x_pixel[mask_nan2], x_pixel[~mask_nan2], y_pixel[~mask_nan2])
+            # ---------- 3. 去直流 + 轻平滑，再算包络 ----------
+            sig_norm = sig_norm - np.mean(sig_norm)
+            if len(sig_norm) > 31:
+                sig_norm = savgol_filter(sig_norm, 31, 31, 3)
 
-            # 像素坐标转物理信号
-            t_meas = x_pixel / w_img * (10 * time_per_div)
-            sig_meas = ((h_img / 2 - y_pixel) / (h_img / 10)) * volt_per_div
+            # 先画提取到的波形，方便用户确认是否提取成功
+            fig_w, ax_w = plt.subplots(figsize=(12, 3))
+            ax_w.plot(col_idx, sig_norm, color="#d62728", linewidth=0.8)
+            ax_w.set_title("从图片提取的波形（已去直流）")
+            ax_w.set_xlabel("Pixel column")
+            ax_w.set_ylabel("Normalized amplitude")
+            ax_w.grid(True, alpha=0.3)
+            fig_w.subplots_adjust(top=0.9)
+            st.pyplot(fig_w)
 
-            # Step 4：包络计算
-            analytic = hilbert(sig_meas)
-            envelope = np.abs(analytic)
-            env_max = np.max(envelope)
-            env_min = np.min(envelope)
-            ma_meas = (env_max - env_min) / (env_max + env_min)
-            env_min_norm = env_min / env_max
+            # ---------- 4. 包络提取（Hilbert）+ 包络平滑 ----------
+            analytic_img = hilbert(sig_norm)
+            env_img = np.abs(analytic_img)
+            if len(env_img) > 31:
+                env_img = savgol_filter(env_img, 31, 3)
 
-            # 理想参考波形
+            env_img_max = np.max(env_img)
+            env_img_min = np.min(env_img)
+            if env_img_max < 1e-6:
+                st.error("❌ 包络幅值异常，无法研判。")
+                st.stop()
+            ma_img_est = (env_img_max - env_img_min) / (env_img_max + env_img_min)
+            env_min_norm_img = env_img_min / env_img_max
+
+            st.subheader("🤖 图片包络形态研判结果（仅供参考）")
+            st.write(f"包络估算调制度：$m_a$ ≈ {ma_img_est:.3f}")
+            st.write(f"归一化包络最小值：{env_min_norm_img:.3f}")
+
+            # ---------- 5. 形态分类（阈值来自 (1-m)/(1+m) 理论值）----------
+            if env_min_norm_img > 0.18:
+                shape_type = "正常调幅（包络谷底远离0）"
+            elif env_min_norm_img > 0.06:
+                shape_type = "临界调幅（包络谷底接近0）"
+            else:
+                shape_type = "过调幅（包络谷底凹陷/相位翻转）"
+            st.write(f"从包络形态判断：波形属于【{shape_type}】")
+
+            target_type = ref_sel
+            if target_type == "m=0.6正常调幅":
+                if env_min_norm_img > 0.18:
+                    st.success("✅ 形态匹配：包络特征符合正常调幅。")
+                else:
+                    st.error("❌ 形态不匹配：包络形态不符合正常调幅。")
+            elif target_type == "m=1.0临界调幅":
+                if 0.06 < env_min_norm_img <= 0.18:
+                    st.success("✅ 形态匹配：包络特征符合临界调幅。")
+                else:
+                    st.error("❌ 形态不匹配：包络形态不符合临界调幅。")
+            elif target_type == "m=1.4过调幅":
+                if env_min_norm_img <= 0.06:
+                    st.success("✅ 形态匹配：包络特征符合过调幅。")
+                else:
+                    st.error("❌ 形态不匹配：包络形态不符合过调幅。")
+
+            # ========== 叠加：提取波形包络 VS 理想参考包络 ==========
             Tm_ref = 1 / fm_e
             t_ref = np.linspace(0, 3.2 * Tm_ref, 20000)
             if ref_sel == "m=0.6正常调幅":
@@ -442,27 +448,14 @@ elif menu == "E模块：智能研判":
             else:
                 am_ref = (1 + 1.4 * np.cos(2 * np.pi * fm_e * t_ref)) * np.cos(2 * np.pi * fc_e * t_ref)
                 m_ref_val = 1.4
+            env_ref = np.abs(hilbert(am_ref))
 
-            # 图1：理想参考波形
-            fig, ax = plt.subplots(figsize=(12, 4))
-            ax.plot(t_ref * 1000, am_ref, color="orange", label=f"Reference Waveform m={m_ref_val:.2f}")
-            ax.set_title(f"Reference Waveform Carrier {fc_e/1000:.1f}kHz, Mod {fm_e}Hz, m={m_ref_val:.2f}")
-            ax.set_xlabel("Time(ms)")
+            fig_compare, ax = plt.subplots(figsize=(12,4))
+            ax.plot(col_idx, env_img, color="red", lw=2, label="提取波形包络")
+            ax.plot(np.linspace(0,col_idx[-1], len(env_ref)), env_ref, color="orange", lw=2, label=f"理想包络 m={m_ref_val}")
+            ax.set_title("提取包络 VS 理论理想包络")
+            ax.set_xlabel("Pixel")
             ax.legend()
             ax.grid(True, alpha=0.3)
-            fig.subplots_adjust(top=0.92)
-            st.pyplot(fig)
-
-            # 图2：提取蓝色波形 + 包络，方便对比包络形状
-            fig2, ax2 = plt.subplots(figsize=(12,4))
-            ax2.plot(t_meas*1000, sig_meas, color="#1f77b4", label="Extracted Blue Waveform")
-            ax2.plot(t_meas*1000, envelope, color="red", lw=2, label="Envelope")
-            ax2.set_title("Extracted Waveform & Envelope")
-            ax2.set_xlabel("Time(ms)")
-            ax2.legend()
-            ax2.grid(True, alpha=0.3)
-            fig2.subplots_adjust(top=0.92)
-            st.pyplot(fig2)
-
-            # 图片分支调用宽松的图片研判函数
-            judge_image(ref_sel, ma_meas, env_min_norm)
+            fig_compare.subplots_adjust(top=0.9)
+            st.pyplot(fig_compare)
