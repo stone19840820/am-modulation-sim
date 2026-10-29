@@ -379,8 +379,8 @@ elif menu == "E模块：智能研判":
 
             # ---------- 3. 去直流 + 轻平滑，再算包络 ----------
             sig_norm = sig_norm - np.mean(sig_norm)
-            if len(sig_norm) > 31:
-                sig_norm = savgol_filter(sig_norm, window_length=31, polyorder=3)
+            if len(sig_norm) > 51:
+                sig_norm = savgol_filter(sig_norm, window_length=51, polyorder=3)
 
             # 先画提取到的波形，方便用户确认是否提取成功
             fig_w, ax_w = plt.subplots(figsize=(12, 3))
@@ -411,9 +411,9 @@ elif menu == "E模块：智能研判":
             st.write(f"归一化包络最小值：{env_min_norm_img:.3f}")
 
             # ---------- 5. 形态分类（阈值来自 (1-m)/(1+m) 理论值）----------
-            if env_min_norm_img > 0.18:
+            if env_min_norm_img > 0.08:
                 shape_type = "正常调幅（包络谷底远离0）"
-            elif env_min_norm_img > 0.06:
+            elif env_min_norm_img > 0.03:
                 shape_type = "临界调幅（包络谷底接近0）"
             else:
                 shape_type = "过调幅（包络谷底凹陷/相位翻转）"
@@ -421,17 +421,17 @@ elif menu == "E模块：智能研判":
 
             target_type = ref_sel
             if target_type == "m=0.6正常调幅":
-                if env_min_norm_img > 0.18:
+                if env_min_norm_img > 0.08:
                     st.success("✅ 形态匹配：包络特征符合正常调幅。")
                 else:
                     st.error("❌ 形态不匹配：包络形态不符合正常调幅。")
             elif target_type == "m=1.0临界调幅":
-                if 0.06 < env_min_norm_img <= 0.18:
+                if 0.03 < env_min_norm_img <= 0.08:
                     st.success("✅ 形态匹配：包络特征符合临界调幅。")
                 else:
                     st.error("❌ 形态不匹配：包络形态不符合临界调幅。")
             elif target_type == "m=1.4过调幅":
-                if env_min_norm_img <= 0.06:
+                if env_min_norm_img <= 0.03:
                     st.success("✅ 形态匹配：包络特征符合过调幅。")
                 else:
                     st.error("❌ 形态不匹配：包络形态不符合过调幅。")
