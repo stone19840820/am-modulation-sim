@@ -103,7 +103,7 @@ if menu == "E模块：AI智能研判":
 
     else:
         st.subheader("示波器截图 → 提取波形并研判")
-        st.info("⚠️由图片提取生成波形数据，受屏幕网格、拍摄摩尔纹干扰，存在误差，仅教学演示。正式测量请上传示波器CSV文件。")
+        st.info("⚠️由图片提取生成波形数据，受屏幕网格、拍摄摩尔纹干扰，存在误差，仅供参考。")
         uploaded_img = st.file_uploader("上传示波器波形截图", type=["jpg","png"])
         if uploaded_img is not None:
             # 显示上传的原图
